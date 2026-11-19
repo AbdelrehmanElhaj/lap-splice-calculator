@@ -107,6 +107,17 @@ button.ghost{background:transparent;color:var(--accent)}
 .paper .sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;font-size:13px;color:var(--muted);margin-top:8px}
 .paper .sign div{border-top:1px solid var(--ink);padding-top:4px}
 .paper p{margin:0;font-size:13px;color:var(--muted);max-width:90ch}
+@media print{
+  :root:root:root{color-scheme:light;--bg:#ffffff;--surface:#ffffff;--ink:#17222c;--muted:#5a6976;--line:#d3dae1;--accent:#0d6481;--accent-soft:#e1eff4;--rail:#f3f5f7;--ok:#1d7a4a;--ok-soft:#e2f3e9;--crit:#b3261e;--crit-soft:#fbe6e4;--warn:#8a5a00;--warn-soft:#fbf0d6}
+  header,.foot,.view:not(#v-report),#v-report .panel:first-child{display:none !important}
+  #v-report[hidden]{display:block !important}
+  .wrap{padding:0;max-width:none}
+  #v-report .panel{border:0}
+  .paper{padding:0}
+  .scroll{overflow:visible}
+  tr{break-inside:avoid}
+  @page{size:A4;margin:14mm}
+}
 </style>
 </head>
 <body>
@@ -220,12 +231,13 @@ button.ghost{background:transparent;color:var(--accent)}
           <div class="f span"><label for="rNote">Remarks</label><input id="rNote" type="text"></div>
         </form>
         <div class="status">
-          <button type="button" id="dlReport" hidden>Download report (HTML, print to PDF)</button>
+          <button type="button" id="printReport" hidden>Print or save as PDF</button>
+          <button type="button" id="dlReport" class="ghost" hidden>Download report (HTML)</button>
           <button type="button" id="dlCsv" class="ghost" hidden>Download schedule (CSV)</button>
           <button type="button" id="copyReport" class="ghost">Copy report as text</button>
           <span id="repMsg" class="foot" role="status"></span>
         </div>
-        <div class="hint">The report uses the current calculator inputs and code constants. Open the downloaded file in a browser and print it to get a PDF.</div>
+        <div class="hint">The report uses the current calculator inputs and code constants. The downloaded HTML report opens in any browser and has its own print button.</div>
       </div>
       <div class="panel"><div class="paper" id="paper"></div></div>
     </div>
@@ -546,13 +558,26 @@ function slug(){return (R.rProject||"lap-splice").toLowerCase().replace(/[^a-z0-
 function saveFile(dl,name,data){
   dl.save({filename:name,data:data}).then(function(){msg("Saved "+name)},function(e){msg(e&&e.code==="declined"?"Download cancelled":"Download is not available here. Use Copy report as text.")});
 }
+function ready(){return last&&last.valid}
+function wire(saver){
+  $("dlReport").hidden=false; $("dlCsv").hidden=false;
+  $("dlReport").addEventListener("click",function(){if(ready())saver(slug()+"-report.html",reportFile(),"text/html");else msg("Complete the calculator inputs first")});
+  $("dlCsv").addEventListener("click",function(){saver(slug()+"-lap-schedule.csv",schedCsv,"text/csv")});
+}
 if(window.claude&&typeof window.claude.use==="function"){
-  window.claude.use("downloads").then(function(dl){
-    if(!dl)return;
-    $("dlReport").hidden=false; $("dlCsv").hidden=false;
-    $("dlReport").addEventListener("click",function(){if(last&&last.valid)saveFile(dl,slug()+"-report.html",reportFile());else msg("Complete the calculator inputs first")});
-    $("dlCsv").addEventListener("click",function(){saveFile(dl,slug()+"-lap-schedule.csv",schedCsv)});
-  },function(){});
+  /* Inside Claude: files go through the downloads capability; direct printing is not available. */
+  window.claude.use("downloads").then(function(dl){if(dl)wire(function(name,data){saveFile(dl,name,data)})},function(){});
+}else{
+  /* Self-hosted (for example GitHub Pages): native download and print. */
+  wire(function(name,data,type){
+    try{
+      var url=URL.createObjectURL(new Blob(["\ufeff"+data],{type:type+";charset=utf-8"})), a=document.createElement("a");
+      a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){URL.revokeObjectURL(url)},2000); msg("Saved "+name);
+    }catch(e){msg("Download failed. Use Copy report as text.")}
+  });
+  $("printReport").hidden=false;
+  $("printReport").addEventListener("click",function(){if(ready())window.print();else msg("Complete the calculator inputs first")});
 }
 toForm(); renderConsts(); render(); route();
 })()}
