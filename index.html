@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lap Splice Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: calculation sheet. Inputs in a fixed left rail, results sheet on the right: governing lengths, bar schematic, then the step-by-step ledger. */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --ink:#17222c; --muted:#5a6976; --line:#d3dae1;
+  --accent:#0d6481; --accent-soft:#e1eff4; --rail:#f7f9fa;
+  --ok:#1d7a4a; --ok-soft:#e2f3e9; --crit:#b3261e; --crit-soft:#fbe6e4; --warn:#8a5a00; --warn-soft:#fbf0d6;
+  --display:"IBM Plex Sans Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#10161b; --surface:#182129; --ink:#e4eaef; --muted:#93a2ae; --line:#2c3944;
+    --accent:#5fb9d6; --accent-soft:#16323d; --rail:#141c23;
+    --ok:#62c992; --ok-soft:#153324; --crit:#f08a82; --crit-soft:#3d1a18; --warn:#e3b655; --warn-soft:#3a2d0f;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#10161b; --surface:#182129; --ink:#e4eaef; --muted:#93a2ae; --line:#2c3944;
+  --accent:#5fb9d6; --accent-soft:#16323d; --rail:#141c23;
+  --ok:#62c992; --ok-soft:#153324; --crit:#f08a82; --crit-soft:#3d1a18; --warn:#e3b655; --warn-soft:#3a2d0f;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--body)}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+h1{font:600 26px/1.1 var(--display);margin:0;letter-spacing:.01em;text-wrap:balance}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav a{padding:7px 14px;border:1px solid var(--line);border-radius:4px;color:var(--ink);text-decoration:none;font-weight:500;font-size:14px;background:var(--surface)}
+nav a[aria-current="page"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.view[hidden]{display:none}
+.grid{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px}
+.panel h2{font:600 13px/1 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0;padding:12px 14px;border-bottom:1px solid var(--line)}
+.rail{background:var(--rail)}
+.fields{display:flex;flex-direction:column;gap:10px;padding:14px}
+.f{display:grid;grid-template-columns:1fr 112px;gap:8px;align-items:center}
+.f.wide{grid-template-columns:1fr}
+.f label{font-size:13px}
+.f label small{display:block;color:var(--muted);font-size:11.5px;line-height:1.3}
+input,select{font:500 14px var(--mono);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%;min-width:0}
+select{font-family:var(--body)}
+.group{font:600 11px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-top:6px;padding-top:10px;border-top:1px solid var(--line)}
+.group:first-child{margin-top:0;padding-top:0;border-top:0}
+.results{display:flex;flex-direction:column;gap:16px;min-width:0}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media (max-width:640px){.tiles{grid-template-columns:1fr}}
+.tile{padding:14px 16px;border-left:4px solid var(--accent)}
+.tile .k{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.tile .v{font:600 32px/1.1 var(--mono);font-variant-numeric:tabular-nums;margin-top:4px}
+.tile .v span{font-size:16px;color:var(--muted);font-weight:500}
+.tile .m{font-size:13px;color:var(--muted);margin-top:2px}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.crit{background:var(--crit-soft);color:var(--crit)} .pill.warn{background:var(--warn-soft);color:var(--warn)}
+.status{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;font-size:13px}
+.sketch{padding:8px 14px 12px}
+.sketch svg{width:100%;height:auto;display:block}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+thead th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--rail);white-space:nowrap}
+td.n,th.n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.sym{font-family:var(--mono);color:var(--muted);white-space:nowrap}
+td.ref{color:var(--muted);font-size:12.5px}
+tr.sec td{background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+tr.res td{font-weight:600;background:var(--ok-soft)}
+tr.diff td.n{color:var(--warn)}
+.bar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:end;padding:14px}
+.bar .f{grid-template-columns:1fr;gap:4px;min-width:170px}
+button{font:600 13px var(--body);padding:7px 14px;border-radius:4px;border:1px solid var(--accent);background:var(--accent);color:var(--surface);cursor:pointer}
+button.ghost{background:transparent;color:var(--accent)}
+.sched td.n{padding:6px 8px}
+.sched th.g{text-align:center;border-left:1px solid var(--line)}
+.sched td.b{font-weight:600;font-family:var(--mono)}
+.sched td.l{border-left:1px solid var(--line)}
+.notes{padding:14px 18px 16px;margin:0;display:flex;flex-direction:column;gap:8px;font-size:13.5px;max-width:78ch}
+.notes li{padding-left:2px}
+.foot{color:var(--muted);font-size:12.5px;max-width:80ch}
+.const input{width:96px;text-align:right}
+.hint{padding:0 14px 12px;color:var(--muted);font-size:12.5px}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 14px;padding:14px}
+.meta .f{grid-template-columns:1fr;gap:4px}
+.meta .f.span{grid-column:1/-1}
+.meta input{font-family:var(--body)}
+.paper{padding:22px 24px 26px;display:flex;flex-direction:column;gap:16px}
+.paper h3{font:600 20px/1.2 var(--display);margin:0}
+.paper h4{font:600 12px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:0 0 6px}
+.paper .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 20px;font-size:13.5px}
+.paper .kv div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding:3px 0}
+.paper .kv span:first-child{color:var(--muted)}
+.paper .kv span:last-child{font-family:var(--mono);text-align:right}
+.paper .big td{font-size:14.5px}
+.paper .sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;font-size:13px;color:var(--muted);margin-top:8px}
+.paper .sign div{border-top:1px solid var(--ink);padding-top:4px}
+.paper p{margin:0;font-size:13px;color:var(--muted);max-width:90ch}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Lap Splice Calculator</h1>
+      <div class="sub">Lap splices and standard hooks · ACI 318-25 with SBC 304-18 comparison · SI units (MPa, mm)</div>
+    </div>
+    <nav aria-label="Views">
+      <a href="#calculator" data-v="calculator">Calculator</a>
+      <a href="#schedule" data-v="schedule">Lap schedule</a>
+      <a href="#report" data-v="report">Report</a>
+      <a href="#code-data" data-v="code-data">Code data and notes</a>
+    </nav>
+  </header>
+
+  <section class="view" id="v-calculator">
+    <div class="grid">
+      <form class="panel rail" id="inputs" autocomplete="off">
+        <h2>Inputs</h2>
+        <div class="fields">
+          <div class="group">Materials</div>
+          <div class="f"><label for="fc">Concrete strength f'c <small>MPa, cylinder</small></label><input id="fc" type="number" min="15" step="1"></div>
+          <div class="f"><label for="fy">Steel yield strength fy <small>MPa</small></label><select id="fy"><option>280</option><option>420</option><option>520</option><option>550</option><option>690</option></select></div>
+          <div class="f"><label for="conc">Concrete type</label><select id="conc"><option value="nw">Normalweight</option><option value="lw">Lightweight</option></select></div>
+          <div class="group">Bars</div>
+          <div class="f"><label for="db">Spliced bar Ø <small>mm, the smaller bar</small></label><select id="db"></select></div>
+          <div class="f"><label for="dbL">Larger bar Ø <small>mm, same if equal sizes</small></label><select id="dbL"></select></div>
+          <div class="f wide"><label for="pos">Casting position</label><select id="pos"><option value="other">Other bar</option><option value="top">Top bar (more than 300 mm fresh concrete below)</option></select></div>
+          <div class="f wide"><label for="coat">Coating</label><select id="coat"><option value="none">Uncoated or galvanized</option><option value="tight">Epoxy, cover &lt; 3db or clear spacing &lt; 6db</option><option value="epoxy">Epoxy, other cases</option></select></div>
+          <div class="group">Cover and confinement</div>
+          <div class="f"><label for="cover">Clear cover <small>mm, least of side, top, bottom</small></label><input id="cover" type="number" min="0" step="5"></div>
+          <div class="f"><label for="sb">Bar spacing, centre to centre <small>mm</small></label><input id="sb" type="number" min="1" step="5"></div>
+          <div class="f"><label for="atr">Transverse steel area Atr <small>mm², crossing the splitting plane. 0 is conservative</small></label><input id="atr" type="number" min="0" step="1"></div>
+          <div class="f"><label for="s">Transverse spacing s <small>mm</small></label><input id="s" type="number" min="1" step="5"></div>
+          <div class="f"><label for="n">Bars spliced on the plane n</label><input id="n" type="number" min="1" step="1"></div>
+          <div class="group">Splice conditions</div>
+          <div class="f"><label for="ratio">As provided / As required</label><input id="ratio" type="number" min="1" step="0.1"></div>
+          <div class="f"><label for="pct">Bars spliced within lap <small>%</small></label><input id="pct" type="number" min="0" max="100" step="5"></div>
+          <div class="f"><label for="seis">Develop 1.25 fy <small>seismic yielding region</small></label><select id="seis"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div class="f"><label for="round">Round up to <small>mm</small></label><select id="round"><option>10</option><option>25</option><option>50</option><option>100</option></select></div>
+          <div class="group">Standard hook</div>
+          <div class="f"><label for="hook">Hook type</label><select id="hook"><option value="90">90°</option><option value="180">180°</option></select></div>
+          <div class="f"><label for="hcov">Cover condition met <small>side cover ≥ 65 mm, and for a 90° hook, cover on the extension ≥ 50 mm</small></label><select id="hcov"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div class="f"><label for="hconf">Hook enclosed by ties <small>ties or stirrups at ≤ 3db along the hook</small></label><select id="hconf"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div class="f"><label for="hjoint">In a special moment frame joint <small>seismic hook equation, confined joint core</small></label><select id="hjoint"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <button type="button" class="ghost" id="reset">Reset to example values</button>
+        </div>
+      </form>
+
+      <div class="results">
+        <div class="tiles">
+          <div class="panel tile"><div class="k">Tension lap, governing</div><div class="v" id="tT">–</div><div class="m" id="tTm"></div></div>
+          <div class="panel tile"><div class="k">Compression lap, governing</div><div class="v" id="tC">–</div><div class="m" id="tCm"></div></div>
+          <div class="panel tile"><div class="k">Hook development, governing</div><div class="v" id="tH">–</div><div class="m" id="tHm"></div></div>
+        </div>
+        <div class="panel">
+          <div class="status" id="status"></div>
+          <div class="sketch">
+            <svg viewBox="0 0 640 130" role="img" aria-label="Lap splice sketch with lap length dimension">
+              <rect x="1" y="30" width="638" height="84" fill="var(--rail)" stroke="var(--line)"/>
+              <rect x="20" y="58" width="400" height="10" rx="5" fill="var(--ink)"/>
+              <rect x="220" y="72" width="400" height="10" rx="5" fill="var(--accent)"/>
+              <g stroke="var(--muted)" stroke-width="1"><line x1="220" y1="10" x2="220" y2="56"/><line x1="420" y1="10" x2="420" y2="70"/><line x1="220" y1="16" x2="420" y2="16"/><path d="M220 16l8 -4v8zM420 16l-8 -4v8z" fill="var(--muted)"/></g>
+              <rect x="262" y="6" width="116" height="20" fill="var(--surface)"/>
+              <text id="skLap" x="320" y="21" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--ink)"></text>
+              <text id="skA" x="24" y="50" font-family="var(--mono)" font-size="12" fill="var(--muted)"></text>
+              <text id="skB" x="616" y="100" text-anchor="end" font-family="var(--mono)" font-size="12" fill="var(--muted)"></text>
+            </svg>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Step by step</h2>
+          <div class="scroll"><table id="steps"><thead><tr><th>Quantity</th><th>Symbol</th><th class="n">ACI 318-25</th><th class="n">SBC 304-18</th><th>Unit</th><th>Clause or note</th></tr></thead><tbody></tbody></table></div>
+          <div class="status"><button type="button" id="copy">Copy results as text</button><span id="copied" class="foot" role="status"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="v-schedule" hidden>
+    <div class="panel">
+      <h2>Lap schedule by bar diameter and concrete strength</h2>
+      <div class="bar">
+        <div class="f"><label for="basis">Code basis</label><select id="basis"><option value="env">Envelope, longer of both</option><option value="aci">ACI 318-25</option><option value="sbc">SBC 304-18</option></select></div>
+        <div class="f"><label for="cls">Tension splice class</label><select id="cls"><option value="B">Class B (1.3 ld)</option><option value="A">Class A (1.0 ld)</option></select></div>
+      </div>
+      <div class="hint" id="schedHint"></div>
+      <div class="scroll"><table class="sched" id="sched"></table></div>
+      <ul class="notes">
+        <li>Hook columns use the hook settings from the calculator.</li>
+        <li>N/P: tension lap splices are not permitted for bars larger than Ø36. Use mechanical or welded splices.</li>
+        <li>Tension values take Ktr = 0, equal bar sizes and no 1.25 fy. Use the calculator to take credit for transverse steel or to handle mixed sizes.</li>
+        <li>For fy above 550 MPa, ACI 318-25 also requires the compression lap to be at least the tension lap. Take the longer tabulated value.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="view" id="v-report" hidden>
+    <div class="results">
+      <div class="panel">
+        <h2>Report details</h2>
+        <form class="meta" id="meta" autocomplete="off">
+          <div class="f"><label for="rProject">Project</label><input id="rProject" type="text"></div>
+          <div class="f"><label for="rElement">Element or location</label><input id="rElement" type="text"></div>
+          <div class="f"><label for="rRef">Calculation reference</label><input id="rRef" type="text"></div>
+          <div class="f"><label for="rBy">Prepared by</label><input id="rBy" type="text"></div>
+          <div class="f"><label for="rChk">Checked by</label><input id="rChk" type="text"></div>
+          <div class="f"><label for="rDate">Date</label><input id="rDate" type="date"></div>
+          <div class="f span"><label for="rNote">Remarks</label><input id="rNote" type="text"></div>
+        </form>
+        <div class="status">
+          <button type="button" id="dlReport" hidden>Download report (HTML, print to PDF)</button>
+          <button type="button" id="dlCsv" class="ghost" hidden>Download schedule (CSV)</button>
+          <button type="button" id="copyReport" class="ghost">Copy report as text</button>
+          <span id="repMsg" class="foot" role="status"></span>
+        </div>
+        <div class="hint">The report uses the current calculator inputs and code constants. Open the downloaded file in a browser and print it to get a PDF.</div>
+      </div>
+      <div class="panel"><div class="paper" id="paper"></div></div>
+    </div>
+  </section>
+
+  <section class="view" id="v-code-data" hidden>
+    <div class="grid" style="grid-template-columns:1fr">
+      <div class="panel">
+        <h2>Code constants</h2>
+        <div class="hint" style="padding-top:12px">Every formula reads these values. Edit one and the calculator and schedule update. Verify each against your licensed copies of ACI CODE-318-25 (SI) and SBC 304-18.</div>
+        <div class="scroll"><table class="const" id="consts"><thead><tr><th>Parameter</th><th class="n">ACI 318-25</th><th class="n">SBC 304-18</th><th>Clause</th></tr></thead><tbody></tbody></table></div>
+        <div class="status"><button type="button" class="ghost" id="resetK">Restore default constants</button></div>
+      </div>
+      <div class="panel">
+        <h2>Basis and detailing notes</h2>
+        <ol class="notes">
+          <li>SBC 304-18 is based on ACI 318-14, so its column omits provisions added in ACI 318-19 and 318-25: the grade factor ψg, the minimum Ktr for high-strength bars, and the compression lap rule for fy above 550 MPa.</li>
+          <li>Tension development: ld = fy·ψt·ψe·ψs·ψg / (1.1·λ·√f'c·(cb+Ktr)/db) · db. The lap is based on ld without the 300 mm minimum and without the excess-steel reduction.</li>
+          <li>cb is the lesser of clear cover plus db/2 and half the centre-to-centre spacing of the spliced bars.</li>
+          <li>Class A applies only when As provided / As required is at least 2.0 and no more than 50% of the bars are spliced within the lap. Otherwise Class B.</li>
+          <li>Different bar sizes in tension: the greater of ld of the larger bar and the lap of the smaller bar. In compression: the greater of ldc of the larger bar and the compression lap of the smaller bar.</li>
+          <li>Non-contact laps in flexural members: transverse spacing of spliced bars no more than the lesser of one-fifth of the lap and 150 mm.</li>
+          <li>Bundled bars and the column tie or spiral reductions for compression laps (0.83 and 0.75) are not calculated here.</li>
+          <li>Seismic, special moment frame beams: no laps within joints, within 2h of the joint face, or within 2h of sections where flexural yielding is expected. Hoops over the whole lap at no more than the lesser of d/4 and 100 mm.</li>
+          <li>Seismic, special moment frame columns: laps only within the centre half of the member length, designed as tension laps and enclosed by confining transverse reinforcement.</li>
+          <li>Seismic, special structural walls: where longitudinal bars are likely to yield, develop 1.25 fy. ACI 318-19 and 318-25 also restrict laps of boundary bars near critical sections.</li>
+          <li>Standard hooks: ACI 318-25 returns to the ACI 318-14 form, ldh = 0.24·fy·ψe·ψs·ψcc·ψr / (λ·√f'c) · db, and adds a bar size factor ψs for large bars. SBC 304-18 uses the same form without ψs. Minimum 8db and 150 mm. ψcc and ψr may always be taken as 1.0.</li>
+          <li>Hooks in special moment frame joints: ldh = fy·db / (5.4·λ·√f'c) for Ø10 to Ø36, with the hook inside the confined joint core. Straight bars in the joint need 2.5 ldh, or 3.25 ldh for top bars.</li>
+          <li>Hook geometry: inside bend diameter 6db up to Ø25, 8db for Ø28 to Ø36, 10db above. Extension 12db for a 90° hook; the greater of 4db and 65 mm for a 180° hook.</li>
+          <li>Mechanical splices: ACI 318-25 uses Class L, G and S in place of Type 1 and Type 2, which SBC 304-18 still uses.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">Design aid only. The engineer of record remains responsible for checking constants, clause numbers and applicability against the adopted code edition.</div>
+</div>
+
+<script>
+"use strict";
+var BARS=[8,10,12,14,16,18,20,22,25,28,32,36,40];
+var KDEF=[
+ ["psiSmax","ψs applies to bars up to Ø (mm)",19,20,"Table 25.4.2.5 / SBC 25.4.2.4"],
+ ["psiS","ψs for small bars",0.8,0.8,"same"],
+ ["psiT","ψt for top bars",1.3,1.3,"same"],
+ ["psiE1","ψe epoxy, tight cover or spacing",1.5,1.5,"same"],
+ ["psiE2","ψe epoxy, other cases",1.2,1.2,"same"],
+ ["psiTEmax","Maximum ψt × ψe",1.7,1.7,"same"],
+ ["psiG550","ψg for 420 < fy ≤ 550 MPa",1.15,1,"ACI Table 25.4.2.5"],
+ ["psiG690","ψg for fy > 550 MPa",1.3,1,"ACI Table 25.4.2.5"],
+ ["lamLW","λ for lightweight concrete",0.75,0.75,"25.4.2.5 / 25.4.2.4"],
+ ["sqrtCap","Cap on √f'c (MPa)",8.3,8.3,"25.4.1.4"],
+ ["confCap","Cap on (cb + Ktr)/db",2.5,2.5,"25.4.2.4 / 25.4.2.3"],
+ ["ktrK","Ktr coefficient, k·Atr/(s·n)",40,40,"25.4.2.4 / 25.4.2.3"],
+ ["minT","Minimum tension ld and lap (mm)",300,300,"25.4.2.1, Table 25.5.2.1"],
+ ["classB","Class B lap factor",1.3,1.3,"Table 25.5.2.1"],
+ ["maxBar","Largest bar in a tension lap (mm)",36,36,"25.5.1.1"],
+ ["ktrMin","Minimum Ktr/db, fy ≥ 550 and spacing < 150 mm",0.5,0,"ACI 25.4.2.2"],
+ ["cK","Compression lap, fy ≤ 420: k·fy·db",0.071,0.071,"25.5.5.1"],
+ ["cA","Compression lap, fy > 420: (a·fy − b)·db, a",0.13,0.13,"25.5.5.1"],
+ ["cB","Compression lap, fy > 420: b",24,24,"25.5.5.1"],
+ ["fcLow","f'c below which compression lap grows (MPa)",21,21,"25.5.5.1"],
+ ["fcInc","Increase factor for low f'c",1.3333,1.3333,"25.5.5.1"],
+ ["minC","Minimum compression lap (mm)",300,300,"25.5.5.1"],
+ ["dcK1","ldc coefficient, k·fy/(λ√f'c)·db",0.24,0.24,"25.4.9.2"],
+ ["dcK2","ldc coefficient, k·fy·db",0.043,0.043,"25.4.9.2"],
+ ["minDc","Minimum ldc (mm)",200,200,"25.4.9.1"],
+ ["cGeT","Compression lap ≥ tension lap for fy > 550 (1 = yes)",1,0,"ACI 25.5.5.1(c)"],
+ ["hK","Hook: k·fy·ψ/(λ√f'c)·db, k",0.24,0.24,"25.4.3.1"],
+ ["hPsiE","Hook ψe for epoxy-coated bars",1.2,1.2,"Table 25.4.3.2"],
+ ["hCC","Hook cover factor ψcc (ψc in SBC) when cover condition is met",0.7,0.7,"Table 25.4.3.2 – verify ACI 318-25 value"],
+ ["hR","Hook confinement factor ψr when enclosed by ties",0.8,0.8,"Table 25.4.3.2 – verify ACI 318-25 value"],
+ ["hS1max","Hook ψs = 1.0 for bars up to Ø (mm)",29,99,"ACI Table 25.4.3.2 – verify"],
+ ["hS2","Hook ψs for larger bars up to Ø36",1.15,1,"ACI Table 25.4.3.2 – verify"],
+ ["hS3","Hook ψs for bars above Ø36",1.3,1,"ACI Table 25.4.3.2 – verify"],
+ ["hMinDb","Hook minimum, multiple of db",8,8,"25.4.3.1"],
+ ["hMin","Hook minimum (mm)",150,150,"25.4.3.1"],
+ ["sK","Seismic joint hook: fy·db/(k·λ√f'c), k",5.4,5.4,"18.8.5.1"],
+ ["sLW","Seismic joint hook, lightweight multiplier",1.3333,1.25,"18.8.5.1"]
+];
+var DEF={fc:30,fy:420,conc:"nw",db:16,dbL:16,pos:"other",coat:"none",cover:40,sb:150,atr:0,s:150,n:1,ratio:1,pct:100,seis:"no",round:50,hook:"90",hcov:"no",hconf:"no",hjoint:"no"};
+function defK(){var a={},b={};KDEF.forEach(function(r){a[r[0]]=r[2];b[r[0]]=r[3]});return{aci:a,sbc:b}}
+var K=defK(), I=Object.assign({},DEF);
+
+function ceilTo(x,m){return Math.ceil(x/m-1e-9)*m}
+function ldTension(i,k,db,lapFactorless){
+  var lam=i.conc==="lw"?k.lamLW:1, pt=i.pos==="top"?k.psiT:1;
+  var pe=i.coat==="tight"?k.psiE1:i.coat==="epoxy"?k.psiE2:1;
+  var pte=Math.min(pt*pe,k.psiTEmax), ps=db<=k.psiSmax?k.psiS:1;
+  var pg=i.fy<=420?1:i.fy<=550?k.psiG550:k.psiG690;
+  var rt=Math.min(Math.sqrt(i.fc),k.sqrtCap), cb=Math.min(i.cover+db/2,i.sb/2);
+  var ktr=(i.s>0&&i.n>0)?k.ktrK*i.atr/(i.s*i.n):0;
+  var conf=Math.min((cb+ktr)/db,k.confCap), fyd=(i.seis==="yes"?1.25:1)*i.fy;
+  return{lam:lam,pt:pt,pe:pe,pte:pte,ps:ps,pg:pg,rt:rt,cb:cb,ktr:ktr,conf:conf,fyd:fyd,ld:fyd*pte*ps*pg/(1.1*lam*rt*conf)*db};
+}
+function calc(i,k){
+  var t=ldTension(i,k,i.db), r=Object.assign({},t);
+  r.ldMin=Math.max(t.ld,k.minT);
+  r.cls=(i.ratio>=2&&i.pct<=50)?"A":"B"; r.fac=r.cls==="A"?1:k.classB;
+  r.lst=Math.max(r.fac*t.ld,k.minT);
+  r.ldL=i.dbL>i.db?Math.max(k.minT,ldTension(i,k,i.dbL).ld):0;
+  r.lstReq=Math.max(r.lst,r.ldL); r.T=ceilTo(r.lstReq,i.round);
+  r.check=Math.max(i.db,i.dbL)>k.maxBar?"Not permitted: bar over Ø"+k.maxBar:(k.ktrMin>0&&i.fy>=550&&i.sb<150&&t.ktr<k.ktrMin*i.db)?"Ktr below "+k.ktrMin+"·db: add ties":"OK";
+  function ldc(d){return Math.max(k.dcK1*i.fy/(t.lam*t.rt)*d,k.dcK2*i.fy*d,k.minDc)}
+  r.ldc=ldc(i.db);
+  r.lscB=Math.max(i.fy<=420?k.cK*i.fy*i.db:(k.cA*i.fy-k.cB)*i.db,k.minC);
+  r.fcF=i.fc<k.fcLow?k.fcInc:1;
+  r.lsc=Math.max(r.lscB*r.fcF,(k.cGeT===1&&i.fy>550)?r.lst:0);
+  r.ldcL=i.dbL>i.db?ldc(i.dbL):0;
+  r.C=ceilTo(Math.max(r.lsc,r.ldcL),i.round);
+  var lw=i.conc==="lw", le36=i.db<=k.maxBar;
+  r.hpe=i.coat==="none"?1:k.hPsiE;
+  r.hps=i.db<=k.hS1max?1:le36?k.hS2:k.hS3;
+  r.hcc=(i.hcov==="yes"&&le36)?k.hCC:1;
+  r.hr=(i.hconf==="yes"&&le36)?k.hR:1;
+  r.ldhCalc=k.hK*i.fy*r.hpe*r.hps*r.hcc*r.hr/(t.lam*t.rt)*i.db;
+  r.ldh=Math.max(r.ldhCalc,k.hMinDb*i.db,k.hMin);
+  r.ldhS=i.hjoint==="yes"?Math.max(i.fy*i.db/(k.sK*t.rt)*(lw?k.sLW:1),(lw?10:8)*i.db,lw?190:150):0;
+  r.H=ceilTo(i.hjoint==="yes"?r.ldhS:r.ldh,i.round);
+  r.ldJ=i.hjoint==="yes"?(i.pos==="top"?3.25:2.5)*r.ldhS:0;
+  r.bend=(i.db<=25?6:i.db<=36?8:10)*i.db;
+  r.ext=i.hook==="90"?12*i.db:Math.max(4*i.db,65);
+  r.hcheck=(i.hjoint==="yes"&&(i.db<10||i.db>36))?"Seismic hook equation covers Ø10 to Ø36":"OK";
+  return r;
+}
+function schedCell(i,k,db,fc,top,cls){
+  if(db>k.maxBar) return null;
+  var j=Object.assign({},i,{fc:fc,pos:top?"top":"other",atr:0,seis:"no"});
+  return ceilTo(Math.max(k.minT,(cls==="A"?1:k.classB)*ldTension(j,k,db).ld),i.round);
+}
+function schedHook(i,k,db,fc){
+  return calc(Object.assign({},i,{db:db,dbL:db,fc:fc}),k).H;
+}
+function schedComp(i,k,db,low){
+  return ceilTo(Math.max(i.fy<=420?k.cK*i.fy*db:(k.cA*i.fy-k.cB)*db,k.minC)*(low?k.fcInc:1),i.round);
+}
+
+if(typeof document!=="undefined"){(function(){
+var $=function(id){return document.getElementById(id)};
+var R={rProject:"",rElement:"",rRef:"",rBy:"",rChk:"",rDate:new Date().toISOString().slice(0,10),rNote:""};
+var NUM=["fc","cover","sb","atr","s","n","ratio","pct"], SEL=["fy","conc","db","dbL","pos","coat","seis","round","hook","hcov","hconf","hjoint"], STR=["conc","pos","coat","seis","hook","hcov","hconf","hjoint"];
+["db","dbL"].forEach(function(id){BARS.forEach(function(b){var o=document.createElement("option");o.textContent=b;$(id).appendChild(o)})});
+try{var sv=JSON.parse(localStorage.getItem("lapsplice")||"null");if(sv){if(sv.I)Object.assign(I,sv.I);if(sv.R)Object.assign(R,sv.R);if(sv.K){Object.assign(K.aci,sv.K.aci);Object.assign(K.sbc,sv.K.sbc)}}}catch(e){}
+function save(){try{localStorage.setItem("lapsplice",JSON.stringify({I:I,K:K,R:R}))}catch(e){}}
+function toForm(){NUM.concat(SEL).forEach(function(id){$(id).value=I[id]})}
+function fromForm(){
+  NUM.forEach(function(id){var v=parseFloat($(id).value);if(isFinite(v))I[id]=v});
+  SEL.forEach(function(id){var v=$(id).value;I[id]=STR.indexOf(id)>=0?v:+v});
+  if(I.dbL<I.db){I.dbL=I.db;$("dbL").value=I.db}
+}
+function f(x,d){return x.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d})}
+var lastText="", stepsHTML="", last=null;
+function render(){
+  var a=calc(I,K.aci), b=calc(I,K.sbc), valid=I.fc>0&&I.sb>0&&I.cover>=0;
+  var T=Math.max(a.T,b.T), C=Math.max(a.C,b.C), H=Math.max(a.H,b.H);
+  function gov(x,y){return x===y?"Both codes agree":x>y?"Governed by ACI 318-25":"Governed by SBC 304-18"}
+  $("tT").innerHTML=valid?f(T,0)+" <span>mm</span>":"–"; $("tC").innerHTML=valid?f(C,0)+" <span>mm</span>":"–";
+  $("tTm").textContent=valid?f(T/I.db,1)+" db · Class "+a.cls+" · "+gov(a.T,b.T):"Enter positive strength and spacing";
+  $("tCm").textContent=valid?f(C/I.db,1)+" db · "+gov(a.C,b.C):"";
+  $("tH").innerHTML=valid?f(H,0)+" <span>mm</span>":"–";
+  $("tHm").textContent=valid?I.hook+"° hook"+(I.hjoint==="yes"?", seismic joint":"")+" · "+gov(a.H,b.H):"";
+  var st=[];
+  [["ACI 318-25",a],["SBC 304-18",b]].forEach(function(p){st.push('<span class="pill '+(p[1].check==="OK"?"ok":"crit")+'">'+p[0]+": "+p[1].check+"</span>")});
+  if(a.hcheck!=="OK")st.push('<span class="pill crit">Hook: '+a.hcheck+"</span>");
+  if(I.seis==="yes")st.push('<span class="pill warn">1.25 fy applied to tension lap</span>');
+  if(a.conf>=K.aci.confCap)st.push('<span class="pill ok">Confinement term at its 2.5 cap</span>');
+  $("status").innerHTML=st.join("");
+  $("skLap").textContent=valid?"lap "+f(T,0)+" mm":""; $("skA").textContent="Ø"+I.db; $("skB").textContent="Ø"+I.dbL;
+  var rows=[
+   ["sec","Tension lap splice"],
+   ["Design yield stress","fy*","fyd",0,"MPa","1.25 fy when the seismic switch is on"],
+   ["Lightweight factor","λ","lam",2,"–","25.4.2.5"],
+   ["Casting position factor","ψt","pt",2,"–",""],
+   ["Coating factor","ψe","pe",2,"–",""],
+   ["ψt × ψe, capped","ψt·ψe","pte",2,"–","Need not exceed 1.7"],
+   ["Bar size factor","ψs","ps",2,"–","Size threshold differs between codes"],
+   ["Grade factor","ψg","pg",2,"–","ACI 318-19 and later only"],
+   ["√f'c, capped","√f'c","rt",3,"MPa","25.4.1.4"],
+   ["Cover or spacing dimension","cb","cb",1,"mm","Lesser of cover + db/2 and half spacing"],
+   ["Transverse steel index","Ktr","ktr",1,"mm","40·Atr/(s·n)"],
+   ["Confinement term, capped","(cb+Ktr)/db","conf",3,"–","Not more than 2.5"],
+   ["Development length, no minimum","ld,calc","ld",0,"mm","Eq. 25.4.2.4a (ACI), 25.4.2.3a (SBC)"],
+   ["Tension development length","ld","ldMin",0,"mm","At least 300 mm"],
+   ["Splice class","–","cls",-1,"–","Table 25.5.2.1"],
+   ["Lap factor","–","fac",2,"–","A = 1.0, B = 1.3"],
+   ["Lap of spliced bar","lst","lst",0,"mm","Greater of factor × ld,calc and 300 mm"],
+   ["Development of larger bar","ld (db,L)","ldL",0,"mm","25.5.2.2, only when sizes differ"],
+   ["res","Tension lap, rounded","lst","T",0,"mm","Rounded up to "+I.round+" mm"],
+   ["sec","Compression lap splice"],
+   ["Compression development length","ldc","ldc",0,"mm","25.4.9.2 with ψr = 1.0"],
+   ["Basic compression lap","lsc,basic","lscB",0,"mm","25.5.5.1, at least 300 mm"],
+   ["Low-strength concrete factor","–","fcF",3,"–","× 4/3 when f'c < 21 MPa"],
+   ["Compression lap of spliced bar","lsc","lsc",0,"mm","ACI: also ≥ lst when fy > 550 MPa"],
+   ["Compression development of larger bar","ldc (db,L)","ldcL",0,"mm","25.5.5.4, only when sizes differ"],
+   ["res","Compression lap, rounded","lsc","C",0,"mm","Rounded up to "+I.round+" mm"],
+   ["sec","Standard hook in tension, "+I.hook+"° hook"],
+   ["Coating factor","ψe","hpe",2,"–","1.2 for epoxy-coated bars"],
+   ["Hook bar size factor","ψs","hps",2,"–","ACI 318-25 only"],
+   ["Cover factor","ψcc","hcc",2,"–","ψc in SBC 304-18; Ø36 and smaller"],
+   ["Confinement factor","ψr","hr",2,"–","Ties at ≤ 3db; Ø36 and smaller"],
+   ["Hook development, no minimum","ldh,calc","ldhCalc",0,"mm","25.4.3.1(a)"],
+   ["Hook development length","ldh","ldh",0,"mm","At least 8db and 150 mm"],
+   ["Hook in special moment frame joint","ldh,joint","ldhS",0,"mm","18.8.5.1, only when the joint switch is on"],
+   ["Straight bar in the same joint","ld,joint","ldJ",0,"mm","2.5 ldh, or 3.25 ldh for top bars"],
+   ["res","Hook development, rounded","ldh","H",0,"mm","Measured from critical section to outside of hook"],
+   ["Inside bend diameter","D","bend",0,"mm","Table 25.3.1"],
+   ["Straight extension past bend","lext","ext",0,"mm","Table 25.3.1"]
+  ];
+  var h="", txt=["Lap splice · f'c "+I.fc+" MPa · fy "+I.fy+" MPa · Ø"+I.db+(I.dbL>I.db?" to Ø"+I.dbL:"")+" · cover "+I.cover+" mm · spacing "+I.sb+" mm","Quantity | ACI 318-25 | SBC 304-18"];
+  rows.forEach(function(r){
+    if(r[0]==="sec"){h+='<tr class="sec"><td colspan="6">'+r[1]+"</td></tr>";txt.push("-- "+r[1]+" --");return}
+    var res=r[0]==="res"; if(res)r=r.slice(1);
+    var va=a[r[2]], vb=b[r[2]], sa=r[3]<0?va:f(va,r[3]), sb=r[3]<0?vb:f(vb,r[3]);
+    h+='<tr class="'+(res?"res":"")+(sa!==sb?" diff":"")+'"><td>'+r[0]+'</td><td class="sym">'+r[1]+'</td><td class="n">'+sa+'</td><td class="n">'+sb+"</td><td>"+r[4]+'</td><td class="ref">'+r[5]+"</td></tr>";
+    txt.push(r[0]+" ("+r[4]+") | "+sa+" | "+sb);
+  });
+  txt.push("Governing: tension lap "+T+" mm, compression lap "+C+" mm, hook development "+H+" mm");
+  lastText=txt.join("\n"); stepsHTML=h; $("steps").tBodies[0].innerHTML=h;
+  last={a:a,b:b,T:T,C:C,H:H,valid:valid,gov:gov};
+  renderSched(); renderReport(); save();
+}
+var schedCsv="";
+function renderSched(){
+  var basis=$("basis").value, cls=$("cls").value, FC=[20,25,30,35,40,50];
+  function val(fn){var x=fn(K.aci), y=fn(K.sbc);if(basis==="aci")return x;if(basis==="sbc")return y;return(x===null||y===null)?null:Math.max(x,y)}
+  var h='<thead><tr><th rowspan="2">Bar Ø mm</th><th class="g" colspan="6">Tension lap, other bars</th><th class="g" colspan="6">Tension lap, top bars</th><th class="g" colspan="2">Compression lap</th><th class="g" colspan="6">Hook development ldh</th></tr><tr>';
+  [0,1].forEach(function(){FC.forEach(function(c,ix){h+='<th class="n'+(ix?"":" g")+'">f\'c '+c+"</th>"})});
+  h+='<th class="n g">f\'c &lt; 21</th><th class="n">f\'c ≥ 21</th>';
+  FC.forEach(function(c,ix){h+='<th class="n'+(ix?"":" g")+'">f\'c '+c+"</th>"});
+  h+="</tr></thead><tbody>";
+  var csv=[["Bar dia mm"].concat(FC.map(function(c){return "Tension other fc"+c}),FC.map(function(c){return "Tension top fc"+c}),["Compression fc<21","Compression fc>=21"],FC.map(function(c){return "Hook ldh fc"+c}))];
+  BARS.forEach(function(d){
+    h+='<tr><td class="b">'+d+"</td>"; var line=[d];
+    [false,true].forEach(function(top){FC.forEach(function(c,ix){var v=val(function(k){return schedCell(I,k,d,c,top,cls)});line.push(v===null?"N/P":v);h+='<td class="n'+(ix?"":" l")+'">'+(v===null?"N/P":f(v,0))+"</td>"})});
+    [true,false].forEach(function(low,ix){var v=val(function(k){return schedComp(I,k,d,low)});line.push(v);h+='<td class="n'+(ix?"":" l")+'">'+f(v,0)+"</td>"});
+    FC.forEach(function(c,ix){var v=val(function(k){return schedHook(I,k,d,c)});line.push(v);h+='<td class="n'+(ix?"":" l")+'">'+f(v,0)+"</td>"});
+    h+="</tr>"; csv.push(line);
+  });
+  $("sched").innerHTML=h+"</tbody>"; schedCsv=csv.map(function(r){return r.join(",")}).join("\n");
+  var coat={none:"uncoated",tight:"epoxy, tight",epoxy:"epoxy"}[I.coat];
+  $("schedHint").textContent="Lengths in mm, rounded up to "+I.round+" mm. Uses the calculator inputs: fy "+I.fy+" MPa, "+(I.conc==="lw"?"lightweight":"normalweight")+" concrete, "+coat+" bars, cover "+I.cover+" mm, bar spacing "+I.sb+" mm.";
+}
+function esc(x){return String(x).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function constsEdited(){var d=defK();return KDEF.some(function(r){return K.aci[r[0]]!==d.aci[r[0]]||K.sbc[r[0]]!==d.sbc[r[0]]})}
+function reportData(){
+  var L=last, coat={none:"Uncoated or galvanized",tight:"Epoxy, tight cover or spacing",epoxy:"Epoxy, other cases"}[I.coat];
+  return{
+   meta:[["Project",R.rProject],["Element or location",R.rElement],["Calculation reference",R.rRef],["Prepared by",R.rBy],["Checked by",R.rChk],["Date",R.rDate],["Remarks",R.rNote]],
+   inputs:[["Concrete strength f'c",I.fc+" MPa"],["Steel yield strength fy",I.fy+" MPa"],["Concrete type",I.conc==="lw"?"Lightweight":"Normalweight"],["Spliced bar",I.dbL>I.db?"Ø"+I.db+" to Ø"+I.dbL:"Ø"+I.db],["Casting position",I.pos==="top"?"Top bar":"Other bar"],["Coating",coat],["Clear cover",I.cover+" mm"],["Bar spacing, c/c",I.sb+" mm"],["Atr / s / n",I.atr+" mm² / "+I.s+" mm / "+I.n],["As provided / required",String(I.ratio)],["Bars spliced within lap",I.pct+" %"],["Develop 1.25 fy",I.seis==="yes"?"Yes":"No"],["Hook type",I.hook+"°"],["Hook cover condition met",I.hcov==="yes"?"Yes":"No"],["Hook enclosed by ties",I.hconf==="yes"?"Yes":"No"],["Special moment frame joint",I.hjoint==="yes"?"Yes":"No"],["Rounding increment",I.round+" mm"]],
+   results:[["Tension lap splice, Class "+L.a.cls,L.a.T,L.b.T,L.T],["Compression lap splice",L.a.C,L.b.C,L.C],["Hook development ldh, "+I.hook+"° hook",L.a.H,L.b.H,L.H]],
+   geom:[["Inside bend diameter",f(L.a.bend,0)+" mm"],["Straight extension past bend",f(L.a.ext,0)+" mm"]],
+   checks:[["Tension lap, ACI 318-25",L.a.check],["Tension lap, SBC 304-18",L.b.check],["Hook",L.a.hcheck]],
+   consts:constsEdited()?"Code constants have been modified from the built-in defaults.":"Built-in default code constants."
+  };
+}
+function reportBody(){
+  if(!last||!last.valid)return "<p>Enter positive concrete strength and bar spacing on the calculator to build the report.</p>";
+  var d=reportData(), h='<div><h3>Reinforcement lap splice and hook calculation</h3><p>ACI 318-25, compared with SBC 304-18. SI units.</p></div>';
+  h+='<div><h4>Project</h4><div class="kv">'+d.meta.map(function(m){return "<div><span>"+m[0]+"</span><span>"+(esc(m[1])||"–")+"</span></div>"}).join("")+"</div></div>";
+  h+='<div><h4>Design inputs</h4><div class="kv">'+d.inputs.map(function(m){return "<div><span>"+m[0]+"</span><span>"+esc(m[1])+"</span></div>"}).join("")+"</div></div>";
+  h+='<div><h4>Results</h4><div class="scroll"><table class="big"><thead><tr><th>Item</th><th class="n">ACI 318-25</th><th class="n">SBC 304-18</th><th class="n">Adopt</th></tr></thead><tbody>'+
+     d.results.map(function(r){return "<tr><td>"+r[0]+'</td><td class="n">'+f(r[1],0)+' mm</td><td class="n">'+f(r[2],0)+' mm</td><td class="n"><strong>'+f(r[3],0)+" mm</strong></td></tr>"}).join("")+"</tbody></table></div></div>";
+  h+='<div><h4>Hook geometry and checks</h4><div class="kv">'+d.geom.concat(d.checks).map(function(m){return "<div><span>"+m[0]+"</span><span>"+esc(m[1])+"</span></div>"}).join("")+"</div></div>";
+  h+='<div><h4>Calculation steps</h4><div class="scroll"><table><thead><tr><th>Quantity</th><th>Symbol</th><th class="n">ACI 318-25</th><th class="n">SBC 304-18</th><th>Unit</th><th>Clause or note</th></tr></thead><tbody>'+stepsHTML+"</tbody></table></div></div>";
+  h+="<p>"+d.consts+" Lap lengths are based on development length without the 300 mm minimum or excess-steel reduction, then subject to the 300 mm minimum. Seismic splice location and confinement rules are not checked by this calculation. Design aid only; the engineer of record must verify constants and clause numbers against the adopted code edition.</p>";
+  h+='<div class="sign"><div>Prepared by: '+(esc(R.rBy)||"")+"</div><div>Checked by: "+(esc(R.rChk)||"")+"</div></div>";
+  return h;
+}
+function reportText(){
+  if(!last||!last.valid)return "";
+  var d=reportData(), t=["REINFORCEMENT LAP SPLICE AND HOOK CALCULATION","ACI 318-25 compared with SBC 304-18 (SI units)",""];
+  d.meta.forEach(function(m){if(m[1])t.push(m[0]+": "+m[1])});
+  t.push("","DESIGN INPUTS"); d.inputs.forEach(function(m){t.push(m[0]+": "+m[1])});
+  t.push("","RESULTS (ACI 318-25 | SBC 304-18 | adopt)"); d.results.forEach(function(r){t.push(r[0]+": "+r[1]+" mm | "+r[2]+" mm | "+r[3]+" mm")});
+  d.geom.concat(d.checks).forEach(function(m){t.push(m[0]+": "+m[1])});
+  t.push("","CALCULATION STEPS",lastText,"",d.consts);
+  return t.join("\n");
+}
+function reportFile(){
+  var css="body{font:13px/1.45 Arial,Helvetica,sans-serif;color:#17222c;margin:0;background:#fff}.paper{max-width:900px;margin:0 auto;padding:28px 28px 40px;display:flex;flex-direction:column;gap:16px}h3{font-size:20px;margin:0}h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#0d6481;margin:0 0 6px}p{margin:0;color:#5a6976;font-size:12px}.kv{display:grid;grid-template-columns:1fr 1fr;gap:2px 24px}.kv div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #d3dae1;padding:3px 0}.kv span:first-child{color:#5a6976}.kv span:last-child{text-align:right;font-family:Consolas,Menlo,monospace}table{border-collapse:collapse;width:100%;font-size:12px}th,td{padding:4px 8px;border-bottom:1px solid #d3dae1;text-align:left;vertical-align:top}thead th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#5a6976;background:#f3f5f7}.n{text-align:right;font-family:Consolas,Menlo,monospace;white-space:nowrap}.sym{font-family:Consolas,Menlo,monospace;color:#5a6976;white-space:nowrap}.ref{color:#5a6976}tr.sec td{background:#e1eff4;color:#0d6481;font-weight:bold;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}tr.res td{font-weight:bold;background:#e2f3e9}.big td{font-size:13.5px}.sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:28px;color:#5a6976}.sign div{border-top:1px solid #17222c;padding-top:4px}.bar{max-width:900px;margin:0 auto;padding:12px 28px 0}button{font:bold 13px Arial;padding:7px 14px;border:1px solid #0d6481;background:#0d6481;color:#fff;border-radius:4px;cursor:pointer}@media print{.bar{display:none}.paper{padding:0}tr{break-inside:avoid}}@page{size:A4;margin:14mm}";
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Lap splice and hook calculation'+(R.rProject?" - "+esc(R.rProject):"")+"</title><style>"+css+'</style></head><body><div class="bar"><button onclick="window.print()">Print or save as PDF</button></div><div class="paper">'+reportBody()+"</div></body></html>";
+}
+function renderReport(){$("paper").innerHTML=reportBody()}
+function renderConsts(){
+  var h="";
+  KDEF.forEach(function(r){
+    h+="<tr><td>"+r[1]+"</td>";
+    ["aci","sbc"].forEach(function(c){h+='<td class="n"><input type="number" step="any" id="k-'+c+"-"+r[0]+'" aria-label="'+r[1]+" "+c+'" value="'+K[c][r[0]]+'"></td>'});
+    h+='<td class="ref">'+r[4]+"</td></tr>";
+  });
+  $("consts").tBodies[0].innerHTML=h;
+}
+$("consts").addEventListener("input",function(e){var m=e.target.id.match(/^k-(aci|sbc)-(.+)$/), v=parseFloat(e.target.value);if(m&&isFinite(v)){K[m[1]][m[2]]=v;render()}});
+$("inputs").addEventListener("input",function(){fromForm();render()});
+$("inputs").addEventListener("submit",function(e){e.preventDefault()});
+$("basis").addEventListener("change",renderSched); $("cls").addEventListener("change",renderSched);
+$("reset").addEventListener("click",function(){I=Object.assign({},DEF);toForm();render()});
+$("resetK").addEventListener("click",function(){K=defK();renderConsts();render()});
+$("copy").addEventListener("click",function(){
+  var done=function(ok){$("copied").textContent=ok?"Copied":"Copy was blocked. Select the table and copy it manually."};
+  try{navigator.clipboard.writeText(lastText).then(function(){done(true)},function(){done(false)})}catch(e){done(false)}
+});
+var VIEWS=["calculator","schedule","report","code-data"];
+function route(){
+  var v=(location.hash||"").slice(1); if(VIEWS.indexOf(v)<0)v="calculator";
+  VIEWS.forEach(function(x){$("v-"+x).hidden=x!==v});
+  document.querySelectorAll("nav a").forEach(function(a){if(a.dataset.v===v)a.setAttribute("aria-current","page");else a.removeAttribute("aria-current")});
+}
+window.addEventListener("hashchange",route);
+Object.keys(R).forEach(function(id){$(id).value=R[id]});
+$("meta").addEventListener("input",function(){Object.keys(R).forEach(function(id){R[id]=$(id).value});renderReport();save()});
+$("meta").addEventListener("submit",function(e){e.preventDefault()});
+function msg(t){$("repMsg").textContent=t}
+$("copyReport").addEventListener("click",function(){
+  try{navigator.clipboard.writeText(reportText()).then(function(){msg("Report copied")},function(){msg("Copy was blocked. Select the report and copy it manually.")})}catch(e){msg("Copy was blocked. Select the report and copy it manually.")}
+});
+function slug(){return (R.rProject||"lap-splice").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"lap-splice"}
+function saveFile(dl,name,data){
+  dl.save({filename:name,data:data}).then(function(){msg("Saved "+name)},function(e){msg(e&&e.code==="declined"?"Download cancelled":"Download is not available here. Use Copy report as text.")});
+}
+if(window.claude&&typeof window.claude.use==="function"){
+  window.claude.use("downloads").then(function(dl){
+    if(!dl)return;
+    $("dlReport").hidden=false; $("dlCsv").hidden=false;
+    $("dlReport").addEventListener("click",function(){if(last&&last.valid)saveFile(dl,slug()+"-report.html",reportFile());else msg("Complete the calculator inputs first")});
+    $("dlCsv").addEventListener("click",function(){saveFile(dl,slug()+"-lap-schedule.csv",schedCsv)});
+  },function(){});
+}
+toForm(); renderConsts(); render(); route();
+})()}
+if(typeof module!=="undefined")module.exports={calc:calc,defK:defK,DEF:DEF,schedCell:schedCell,schedComp:schedComp,schedHook:schedHook};
+</script>
+</body>
+</html>
